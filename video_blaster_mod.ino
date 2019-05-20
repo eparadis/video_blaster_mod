@@ -15,10 +15,10 @@ volatile byte VBE = 0;   // Video blanking status. If this is not zero you shoul
 
 #define WAIT_VBE while (VBE==1) sleep_cpu();
 
-unsigned int scanline = 0; // Dont touch, not volatile
-unsigned int videoptr = 0; // Dont touch, not volatile
-byte row;                // Dont touch, not volatile
-byte lace;               // Dont touch, not volatile
+// These should not be used outside the ISR
+unsigned int scanline = 0; 
+unsigned int videoptr = 0;
+byte row;
 
 // This is the video character ROM (8x8 font definition)
 const unsigned char charROM [8] [128] PROGMEM = { 0x1C , 0x18 , 0x7C , 0x1C , 0x78 , 0x7E , 0x7E , 0x1C , 0x42 , 0x1C , 0xE ,
@@ -77,40 +77,21 @@ const unsigned char charROM [8] [128] PROGMEM = { 0x1C , 0x18 , 0x7C , 0x1C , 0x
                                                   0xC0 , 0xE0 , 0x7 , 0x0 , 0x0 , 0xFF , 0xFF , 0xF0 , 0x0 , 0x0 , 0x0 , 0xF
                                                 };
 
-
-// "At 16 mhz, each NOP takes 62.5 NANOseconds."
-// 64 NOPs = 4.0 uS
-// "In the 525-line NTSC system it is a 4.85 µs-long pulse at 0 V."
-// 4.85uS ~= 77.6 NOPs
-#define SYNCDELAY   // This makes up the sync pulse low time delay
-asm("nop\n nop\n nop\n nop\n nop\n nop\n nop\n nop\n"); /*  8 */ \
-asm("nop\n nop\n nop\n nop\n nop\n nop\n nop\n nop\n"); /* 16 */ \
-asm("nop\n nop\n nop\n nop\n nop\n nop\n nop\n nop\n"); /* 24 */ \
-asm("nop\n nop\n nop\n nop\n nop\n nop\n nop\n nop\n"); /* 32 */ \
-asm("nop\n nop\n nop\n nop\n nop\n nop\n nop\n nop\n"); /* 40 */ \
-asm("nop\n nop\n nop\n nop\n nop\n nop\n nop\n nop\n"); /* 48 */ \
-asm("nop\n nop\n nop\n nop\n nop\n nop\n nop\n nop\n"); /* 56 */ \
-asm("nop\n nop\n nop\n nop\n nop\n nop\n nop\n nop\n"); /* 64 */
-
 const byte MSPIM_SCK = 4;  // This is needed for the hardware to work
 const byte MSPIM_SS = 5;   // This is needed for the hardware to work
 
 //--------------------------------------------------------------
 
+// orig 22 cols, 24 rows
 #define MAX_VID_RAM (CHARS_PER_ROW*24)
 char videomem[MAX_VID_RAM];
-//char videomem[528]; // orig 22 cols, 24 rows
-
-#define TOPLINES 6
-#define MIDLINES 40
+//char videomem[528]; 
 
 // hold what we're currently considering sync on or off, depending on sync inversion
-char syncON, syncOFF;
+byte syncON, syncOFF;
 
-ISR(TIMER0_COMPA_vect) {   //Video interrupt. This is called at every line in the frame.
-  //  byte back_porch = 8;  // Back porch (original value: 8)
-  //  byte left_blank = 3;  // Left Blank (original value: 4)
-  byte chars_per_row = CHARS_PER_ROW; //Chars per row
+ISR(TIMER0_COMPA_vect) {   // Video interrupt. This is called at every line in the frame.
+  byte chars_per_row = CHARS_PER_ROW;
 
   // start sync
   PORTD = syncON;
@@ -118,14 +99,14 @@ ISR(TIMER0_COMPA_vect) {   //Video interrupt. This is called at every line in th
   // update scanline number
   scanline++;
 
-  //begin inverted (Vertical) synch after line 247
+  // begin inverted (Vertical) sync after line 247
   if (scanline == 248) {
     syncON = 0b10000000;
     syncOFF = 0;
-  } else if (scanline == 251) { //back to regular sync after line 250
+  } else if (scanline == 251) { // back to regular sync after line 250
     syncON = 0;
     syncOFF = 0b10000000;
-  } else if (scanline == 263) { //start new frame after line 262
+  } else if (scanline == 263) { // start new frame after line 262
     scanline = 1;
     VBE = 0;
   }
@@ -151,6 +132,7 @@ ISR(TIMER0_COMPA_vect) {   //Video interrupt. This is called at every line in th
     _delay_us(7);
 
     UCSR0B = _BV(TXEN0);
+    //      byte left_blank = 3;  // Left Blank (original value: 4)
     //      while (left_blank--) {
     //        while ((UCSR0A & _BV (UDRE0)) == 0) {}
     //        UDR0 = 0;
@@ -168,7 +150,6 @@ ISR(TIMER0_COMPA_vect) {   //Video interrupt. This is called at every line in th
     //           but "videoptr=(row>>3)*CHARS_PER_ROW;" didn't look right
     videoptr = (row >> 3) * CHARS_PER_ROW;
     VBE = 1;
-
   }
 }
 
@@ -200,9 +181,12 @@ void setup () {
   set_sleep_mode (SLEEP_MODE_IDLE);
   sei();
 
+  // the built-in LED
   pinMode(13, OUTPUT);
   digitalWrite(13, LOW);
-  pinMode(1, OUTPUT); //A must for MSMSPI VIDEO to work
+
+  // TXD aka D1 (Arduino) aka PD1 (Atmel)
+  pinMode(1, OUTPUT);   //A must for MSMSPI VIDEO to work
   digitalWrite(1, LOW); //A must for MSMSPI VIDEO to work
 
   for (int i = 0; i < MAX_VID_RAM; i++) {
