@@ -6,8 +6,6 @@
 //----------------- VideoBlaster definitions -----------------
 
 #define DOTCLK 1 // NOTE edp: orig was 1   // Pixel clock (0 for 8MHz, 1 for 4MHz)
-#define HSYNC 125 // 122? NOTE edp: original value 132  // Hsync frequency (divided from Fcpu)
-#define LINES 262  // Lines per field - 1 (261 for NTSC, 311 for PAL)
 #define SYNCPIN 0b10000000 // NOTE edp: orig was "4"  // Pin in PORTD that that is connected for sync
 #define CHARS_PER_ROW 20
 
@@ -85,7 +83,6 @@ const byte MSPIM_SS = 5;   // This is needed for the hardware to work
 // orig 22 cols, 24 rows
 #define MAX_VID_RAM (CHARS_PER_ROW*24)
 char videomem[MAX_VID_RAM];
-//char videomem[528]; 
 
 // hold what we're currently considering sync on or off, depending on sync inversion
 byte syncON, syncOFF;
@@ -128,8 +125,10 @@ ISR(TIMER0_COMPA_vect) {   // Video interrupt. This is called at every line in t
     const register byte * linePtr = &charROM [ row & 0x07 ] [0];
     register byte * messagePtr = (byte *) & videomem [videoptr] ;
 
+    UDR0 = 0;
+
     //center image on screen
-    _delay_us(7);
+    _delay_us(5);
 
     UCSR0B = _BV(TXEN0);
     //      byte left_blank = 3;  // Left Blank (original value: 4)
@@ -154,27 +153,25 @@ ISR(TIMER0_COMPA_vect) {   // Video interrupt. This is called at every line in t
 }
 
 void setup () {
-  pinMode (MSPIM_SS, OUTPUT);  //A must for MSMSPI VIDEO to work
-  pinMode (MSPIM_SCK, OUTPUT); //A must for MSMSPI VIDEO to work
-  pinMode(2, OUTPUT); //Set D2 as output for Sync. A must for MSMSPI VIDEO to work
-  // NOTE edp: what the heck, try every pin on port D
-  pinMode(3, OUTPUT); //NOTE edp: why does arduino Pin D4 seem to have the right signal?
-  // there is totally some sort of semi-sync'd signal on arduino pin 4, aka AVR PD4 aka T0
-  pinMode(4, OUTPUT); //NOTE edp: why does arduino Pin D4 seem to have the right signal?
-  pinMode(5, OUTPUT); //NOTE edp: why does arduino Pin D4 seem to have the right signal?
-  pinMode(6, OUTPUT); //NOTE edp: why does arduino Pin D4 seem to have the right signal?
-  pinMode(7, OUTPUT); //NOTE edp: why does arduino Pin D4 seem to have the right signal?
+  pinMode (MSPIM_SS, OUTPUT);
+  pinMode (MSPIM_SCK, OUTPUT);
+  pinMode(7, OUTPUT); // video sync output
   UBRR0 = 0;
   UCSR0A = _BV (TXC0);
   UCSR0C = _BV (UMSEL00) | _BV (UMSEL01);
   UCSR0B = _BV (TXEN0);
   UBRR0 = DOTCLK;
+
+  // setup horizontal sync ISR
   cli();
   TCCR0A = 0;
   TCCR0B = 0;
   TCNT0  = 0;
   // "In analog television systems the horizontal frequency is between 15.625 kHz and 15.750 kHz."
-  OCR0A = HSYNC;// NOTE edp: did he mean 16*1e6 ??? orig: // = (16*10^6) / (15625*8) - 1 (must be <256)
+  // "...each line takes 63.5us to paint (15.75kHz)"
+  // OCR0A = 127; // 15.625 khz
+  OCR0A = 126; // 15.748 khz
+  // OCR0A = 125; // 15.873 khz
   TCCR0A |= (1 << WGM01);
   TCCR0B |= (0 << CS02) | (1 << CS01) | (0 << CS00);
   TIMSK0 |= (1 << OCIE0A);
