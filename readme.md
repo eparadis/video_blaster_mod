@@ -17,3 +17,12 @@ I suspect that becaues they're using some sort of digitization
 in the signal chain, the syncronization requirements are much
 more relaxed than with a CRT. So the primary goal was to get
 a high quality and stable image unavailable with Jan's code.
+
+
+### References:
+
+- Notes from an EE lab at Stanford from around 2002:
+  https://web.stanford.edu/class/ee281/handouts/lab4.pdf
+- Jan's project
+  https://www.hackster.io/janost/avr-videoblaster-8026fd
+  
