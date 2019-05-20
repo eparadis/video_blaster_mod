@@ -9,7 +9,6 @@
 #define HSYNC 125 // 122? NOTE edp: original value 132  // Hsync frequency (divided from Fcpu)
 #define LINES 262  // Lines per field - 1 (261 for NTSC, 311 for PAL)
 #define SYNCPIN 0b10000000 // NOTE edp: orig was "4"  // Pin in PORTD that that is connected for sync
-#define INTERLACE 1 // 0 for interlace, 1 for non interlace. Running with interlaced video gives more cycles to the application
 #define CHARS_PER_ROW 20
 
 volatile byte VBE = 0;   // Video blanking status. If this is not zero you should sleep to keep the video smooth
@@ -109,8 +108,8 @@ char videomem[MAX_VID_RAM];
 char syncON, syncOFF;
 
 ISR(TIMER0_COMPA_vect) {   //Video interrupt. This is called at every line in the frame.
-//  byte back_porch = 8;  // Back porch (original value: 8)
-//  byte left_blank = 3;  // Left Blank (original value: 4)
+  //  byte back_porch = 8;  // Back porch (original value: 8)
+  //  byte left_blank = 3;  // Left Blank (original value: 4)
   byte chars_per_row = CHARS_PER_ROW; //Chars per row
 
   // start sync
@@ -129,7 +128,6 @@ ISR(TIMER0_COMPA_vect) {   //Video interrupt. This is called at every line in th
   } else if (scanline == 263) { //start new frame after line 262
     scanline = 1;
     VBE = 0;
-    lace++;
   }
 
   //adjust to make 5 us pulses
@@ -138,47 +136,39 @@ ISR(TIMER0_COMPA_vect) {   //Video interrupt. This is called at every line in th
   //end sync pulse
   PORTD = syncOFF;
 
-  if(scanline == 39 ) {
+  if (scanline == 39 ) {
     videoptr = 0;
     row = 0;
   }
 
   // scanlines 40 to 231 are image lines
   if ((scanline >= 40) && (scanline <= 231)) {
-    if ( lace & 1 | INTERLACE) {
-      const register byte * linePtr = &charROM [ row & 0x07 ] [0];
-      register byte * messagePtr = (byte *) & videomem [videoptr] ;
-//      while (back_porch--) {
-//        asm("nop\n");
-//        asm("nop\n");
-//      }
-      //center image on screen
-      _delay_us(7);
 
-      UCSR0B = _BV(TXEN0);
-//      while (left_blank--) {
-//        while ((UCSR0A & _BV (UDRE0)) == 0) {}
-//        UDR0 = 0;
-//      }
-      while (chars_per_row --) {
-        UDR0 = pgm_read_byte (linePtr + (* messagePtr++));
-        while ((UCSR0A & _BV (UDRE0)) == 0)
-        {}
-      }
+    const register byte * linePtr = &charROM [ row & 0x07 ] [0];
+    register byte * messagePtr = (byte *) & videomem [videoptr] ;
+
+    //center image on screen
+    _delay_us(7);
+
+    UCSR0B = _BV(TXEN0);
+    //      while (left_blank--) {
+    //        while ((UCSR0A & _BV (UDRE0)) == 0) {}
+    //        UDR0 = 0;
+    //      }
+    while (chars_per_row --) {
+      UDR0 = pgm_read_byte (linePtr + (* messagePtr++));
       while ((UCSR0A & _BV (UDRE0)) == 0)
       {}
-      UCSR0B = 0;
-      row++;
-      // NOTE edp: pretty sure the 22 is the chars_per_row,
-      //           but "videoptr=(row>>3)*CHARS_PER_ROW;" didn't look right
-      videoptr = (row >> 3) * CHARS_PER_ROW;
-      VBE = 1;
     }
-  }
+    while ((UCSR0A & _BV (UDRE0)) == 0)
+    {}
+    UCSR0B = 0;
+    row++;
+    // NOTE edp: pretty sure the 22 is the chars_per_row,
+    //           but "videoptr=(row>>3)*CHARS_PER_ROW;" didn't look right
+    videoptr = (row >> 3) * CHARS_PER_ROW;
+    VBE = 1;
 
-  if (scanline > LINES) {
-    scanline = 0;
-    lace++;
   }
 }
 
