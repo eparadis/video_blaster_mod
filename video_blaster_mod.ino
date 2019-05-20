@@ -5,9 +5,10 @@
 
 //----------------- VideoBlaster definitions -----------------
 
-#define DOTCLK 0 // NOTE edp: orig was 1   // Pixel clock (0 for 8MHz, 1 for 4MHz)
+#define DOTCLK 0 // Pixel clock (0 for 8MHz, 1 for 4MHz)
 #define SYNCPIN 0b10000000 // NOTE edp: orig was "4"  // Pin in PORTD that that is connected for sync
-#define CHARS_PER_ROW 40
+#define CHARS_PER_ROW 39
+#define ROWS_PER_COL 25
 
 #define SEND_BLANK_CHARACTER UDR0 = 0; while ((UCSR0A & _BV (UDRE0)) == 0) {}
 
@@ -83,7 +84,7 @@ const byte MSPIM_SS = 5;   // This is needed for the hardware to work
 //--------------------------------------------------------------
 
 // orig 22 cols, 24 rows
-#define MAX_VID_RAM (CHARS_PER_ROW*24)
+#define MAX_VID_RAM (CHARS_PER_ROW*ROWS_PER_COL)
 char videomem[MAX_VID_RAM];
 
 // hold what we're currently considering sync on or off, depending on sync inversion
@@ -114,13 +115,13 @@ ISR(TIMER0_COMPA_vect) {   // Video interrupt. This is called at every line in t
   //end sync pulse
   PORTD = syncOFF;
 
-  if (scanline == 39 ) {
+  if (scanline == 19 ) {
     videoptr = 0;
     row = 0;
   }
 
   // scanlines 40 to 231 are image lines
-  if ((scanline >= 40) && (scanline <= 231)) {
+  if ((scanline >= 20) && (scanline < (20+8*ROWS_PER_COL))) {
 
     const register byte * linePtr = &charROM [ row & 0x07 ] [0];
     register byte * messagePtr = (byte *) & videomem [videoptr] ;
@@ -133,15 +134,15 @@ ISR(TIMER0_COMPA_vect) {   // Video interrupt. This is called at every line in t
     SEND_BLANK_CHARACTER
 #if DOTCLK == 0
     SEND_BLANK_CHARACTER
-    SEND_BLANK_CHARACTER
 #endif
 
     // send a line of data
     byte chars_per_row = CHARS_PER_ROW;
     while (chars_per_row --) {
-      UDR0 = pgm_read_byte (linePtr + (* messagePtr++));
+      
       while ((UCSR0A & _BV (UDRE0)) == 0)
       {}
+      UDR0 = ~(pgm_read_byte (linePtr + (* messagePtr++)));
     }
     while ((UCSR0A & _BV (UDRE0)) == 0)
     {}
@@ -158,10 +159,10 @@ ISR(TIMER0_COMPA_vect) {   // Video interrupt. This is called at every line in t
 
 void setup () {
   pinMode (MSPIM_SS, OUTPUT);
-  pinMode (MSPIM_SCK, OUTPUT);
   pinMode(7, OUTPUT); // video sync output
   UBRR0 = 0;
   UCSR0A = _BV (TXC0);
+  pinMode (MSPIM_SCK, OUTPUT);
   UCSR0C = _BV (UMSEL00) | _BV (UMSEL01);
   UCSR0B = _BV (TXEN0);
   UBRR0 = DOTCLK;
@@ -193,8 +194,8 @@ void setup () {
   for (int i = 0; i < MAX_VID_RAM; i++) {
     //    videomem[i] = 126; // graphical character of half height square
     //    videomem[i] = (i&1?0xF0:0x0F); // alternate two specific characters
-    //    videomem[i] = 48 + (i % 10); // count through the digits
-    videomem[i] = i%128; // cycle through every character
+        videomem[i] = 48 + (i % 10); // count through the digits
+    //    videomem[i] = i%128; // cycle through every character
     //    videomem[i] = 31; // fill with a single character. 31 is a left horizontal arrow
     //    videomem[i] = (i%26); // the first 26 characters are A-Z (nonascii)
     //    videomem[i] = 32; // fill with blanks, 32 = ' ' in this charset
