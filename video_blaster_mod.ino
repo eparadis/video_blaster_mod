@@ -5,16 +5,18 @@
 
 //----------------- VideoBlaster definitions -----------------
 
-#define DOTCLK 1 // NOTE edp: orig was 1   // Pixel clock (0 for 8MHz, 1 for 4MHz)
+#define DOTCLK 0 // NOTE edp: orig was 1   // Pixel clock (0 for 8MHz, 1 for 4MHz)
 #define SYNCPIN 0b10000000 // NOTE edp: orig was "4"  // Pin in PORTD that that is connected for sync
-#define CHARS_PER_ROW 20
+#define CHARS_PER_ROW 40
+
+#define SEND_BLANK_CHARACTER UDR0 = 0; while ((UCSR0A & _BV (UDRE0)) == 0) {}
 
 volatile byte VBE = 0;   // Video blanking status. If this is not zero you should sleep to keep the video smooth
 
 #define WAIT_VBE while (VBE==1) sleep_cpu();
 
 // These should not be used outside the ISR
-unsigned int scanline = 0; 
+unsigned int scanline = 0;
 unsigned int videoptr = 0;
 byte row;
 
@@ -88,9 +90,7 @@ char videomem[MAX_VID_RAM];
 byte syncON, syncOFF;
 
 ISR(TIMER0_COMPA_vect) {   // Video interrupt. This is called at every line in the frame.
-  byte chars_per_row = CHARS_PER_ROW;
-
-  // start sync
+  // start sync pulse
   PORTD = syncON;
 
   // update scanline number
@@ -125,17 +125,19 @@ ISR(TIMER0_COMPA_vect) {   // Video interrupt. This is called at every line in t
     const register byte * linePtr = &charROM [ row & 0x07 ] [0];
     register byte * messagePtr = (byte *) & videomem [videoptr] ;
 
-    UDR0 = 0;
-
-    //center image on screen
-    _delay_us(5);
-
     UCSR0B = _BV(TXEN0);
-    //      byte left_blank = 3;  // Left Blank (original value: 4)
-    //      while (left_blank--) {
-    //        while ((UCSR0A & _BV (UDRE0)) == 0) {}
-    //        UDR0 = 0;
-    //      }
+
+    // center image on screen
+    SEND_BLANK_CHARACTER
+    SEND_BLANK_CHARACTER
+    SEND_BLANK_CHARACTER
+#if DOTCLK == 0
+    SEND_BLANK_CHARACTER
+    SEND_BLANK_CHARACTER
+#endif
+
+    // send a line of data
+    byte chars_per_row = CHARS_PER_ROW;
     while (chars_per_row --) {
       UDR0 = pgm_read_byte (linePtr + (* messagePtr++));
       while ((UCSR0A & _BV (UDRE0)) == 0)
@@ -144,10 +146,12 @@ ISR(TIMER0_COMPA_vect) {   // Video interrupt. This is called at every line in t
     while ((UCSR0A & _BV (UDRE0)) == 0)
     {}
     UCSR0B = 0;
+
+    // update videoptr to the start of the next line of characters
     row++;
-    // NOTE edp: pretty sure the 22 is the chars_per_row,
-    //           but "videoptr=(row>>3)*CHARS_PER_ROW;" didn't look right
     videoptr = (row >> 3) * CHARS_PER_ROW;
+
+    // signal that we're drawing the image, not in vertical blank
     VBE = 1;
   }
 }
@@ -189,8 +193,8 @@ void setup () {
   for (int i = 0; i < MAX_VID_RAM; i++) {
     //    videomem[i] = 126; // graphical character of half height square
     //    videomem[i] = (i&1?0xF0:0x0F); // alternate two specific characters
-    videomem[i] = 48 + (i % 10); // count through the digits
-    //    videomem[i] = i%128; // cycle through every character
+    //    videomem[i] = 48 + (i % 10); // count through the digits
+    videomem[i] = i%128; // cycle through every character
     //    videomem[i] = 31; // fill with a single character. 31 is a left horizontal arrow
     //    videomem[i] = (i%26); // the first 26 characters are A-Z (nonascii)
     //    videomem[i] = 32; // fill with blanks, 32 = ' ' in this charset
