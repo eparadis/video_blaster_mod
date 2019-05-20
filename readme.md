@@ -25,4 +25,6 @@ a high quality and stable image unavailable with Jan's code.
   https://web.stanford.edu/class/ee281/handouts/lab4.pdf
 - Jan's project
   https://www.hackster.io/janost/avr-videoblaster-8026fd
+- incorportes ideas from this Cornell lab guide
+  `http://people.ece.cornell.edu/land/courses/ece4760/video/video_GCC_1284/video_144x150_16MHz_uart_GCC1284.c`
   

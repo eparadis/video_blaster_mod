@@ -6,8 +6,8 @@
 //----------------- VideoBlaster definitions -----------------
 
 #define DOTCLK 1 // NOTE edp: orig was 1   // Pixel clock (0 for 8MHz, 1 for 4MHz)
-#define HSYNC 124 // 122? NOTE edp: original value 132  // Hsync frequency (divided from Fcpu)
-#define LINES 261  // Lines per field -1 (261 for NTSC, 311 for PAL)
+#define HSYNC 125 // 122? NOTE edp: original value 132  // Hsync frequency (divided from Fcpu)
+#define LINES 262  // Lines per field - 1 (261 for NTSC, 311 for PAL)
 #define SYNCPIN 0b10000000 // NOTE edp: orig was "4"  // Pin in PORTD that that is connected for sync
 #define INTERLACE 1 // 0 for interlace, 1 for non interlace. Running with interlaced video gives more cycles to the application
 #define CHARS_PER_ROW 20
@@ -98,53 +98,68 @@ const byte MSPIM_SS = 5;   // This is needed for the hardware to work
 
 //--------------------------------------------------------------
 
-#define MAX_VID_RAM 528
+#define MAX_VID_RAM (CHARS_PER_ROW*24)
 char videomem[MAX_VID_RAM];
 //char videomem[528]; // orig 22 cols, 24 rows
 
-#define TOPLINES 3
+#define TOPLINES 6
 #define MIDLINES 40
 
+// hold what we're currently considering sync on or off, depending on sync inversion
+char syncON, syncOFF;
+
 ISR(TIMER0_COMPA_vect) {   //Video interrupt. This is called at every line in the frame.
-  byte back_porch = 8;  // Back porch (original value: 8)
-  byte left_blank = 3;  // Left Blank (original value: 4)
+//  byte back_porch = 8;  // Back porch (original value: 8)
+//  byte left_blank = 3;  // Left Blank (original value: 4)
   byte chars_per_row = CHARS_PER_ROW; //Chars per row
 
-  // sync pin low
-  PORTD = 0;
+  // start sync
+  PORTD = syncON;
 
-  // scanlines 3 to 39  and  232 to LINES have sync pin high
-  // these are also the virtical blank period
-  if ((scanline >= TOPLINES) && (scanline < MIDLINES) || (scanline > 231)) {
-    SYNCDELAY
-    PORTD = SYNCPIN;
+  // update scanline number
+  scanline++;
+
+  //begin inverted (Vertical) synch after line 247
+  if (scanline == 248) {
+    syncON = 0b10000000;
+    syncOFF = 0;
+  } else if (scanline == 251) { //back to regular sync after line 250
+    syncON = 0;
+    syncOFF = 0b10000000;
+  } else if (scanline == 263) { //start new frame after line 262
+    scanline = 1;
     VBE = 0;
+    lace++;
   }
 
-  // scanlines 0, 1 and 2 have no image, and sync pin low
-  if (scanline < TOPLINES) {
-    SYNCDELAY
-    PORTD = 0;
+  //adjust to make 5 us pulses
+  _delay_us(3);
+
+  //end sync pulse
+  PORTD = syncOFF;
+
+  if(scanline == 39 ) {
     videoptr = 0;
     row = 0;
   }
 
   // scanlines 40 to 231 are image lines
-  if ((scanline >= MIDLINES) && (scanline <= 231)) {
-    SYNCDELAY
-    PORTD = SYNCPIN;
+  if ((scanline >= 40) && (scanline <= 231)) {
     if ( lace & 1 | INTERLACE) {
       const register byte * linePtr = &charROM [ row & 0x07 ] [0];
       register byte * messagePtr = (byte *) & videomem [videoptr] ;
-      while (back_porch--) {
-        asm("nop\n");
-        asm("nop\n");
-      }
+//      while (back_porch--) {
+//        asm("nop\n");
+//        asm("nop\n");
+//      }
+      //center image on screen
+      _delay_us(7);
+
       UCSR0B = _BV(TXEN0);
-      while (left_blank--) {
-        while ((UCSR0A & _BV (UDRE0)) == 0) {}
-        UDR0 = 0;
-      }
+//      while (left_blank--) {
+//        while ((UCSR0A & _BV (UDRE0)) == 0) {}
+//        UDR0 = 0;
+//      }
       while (chars_per_row --) {
         UDR0 = pgm_read_byte (linePtr + (* messagePtr++));
         while ((UCSR0A & _BV (UDRE0)) == 0)
@@ -160,7 +175,7 @@ ISR(TIMER0_COMPA_vect) {   //Video interrupt. This is called at every line in th
       VBE = 1;
     }
   }
-  scanline++;
+
   if (scanline > LINES) {
     scanline = 0;
     lace++;
@@ -190,7 +205,7 @@ void setup () {
   // "In analog television systems the horizontal frequency is between 15.625 kHz and 15.750 kHz."
   OCR0A = HSYNC;// NOTE edp: did he mean 16*1e6 ??? orig: // = (16*10^6) / (15625*8) - 1 (must be <256)
   TCCR0A |= (1 << WGM01);
-  TCCR0B |= (1 << CS01) | (0 << CS00);
+  TCCR0B |= (0 << CS02) | (1 << CS01) | (0 << CS00);
   TIMSK0 |= (1 << OCIE0A);
   set_sleep_mode (SLEEP_MODE_IDLE);
   sei();
