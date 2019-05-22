@@ -123,7 +123,7 @@ ISR(TIMER0_COMPA_vect) {   // Video interrupt. This is called at every line in t
   }
 
   // scanlines 40 to 231 are image lines
-  if ((scanline >= 20) && (scanline < (20+8*ROWS_PER_COL))) {
+  if ((scanline >= 20) && (scanline < (20 + 8 * ROWS_PER_COL))) {
 
     const register byte * linePtr = &charROM [ row & 0x07 ] [0];
     register byte * messagePtr = (byte *) & videomem [videoptr] ;
@@ -141,7 +141,7 @@ ISR(TIMER0_COMPA_vect) {   // Video interrupt. This is called at every line in t
     // send a line of data
     byte chars_per_row = CHARS_PER_ROW;
     while (chars_per_row --) {
-      
+
       while ((UCSR0A & _BV (UDRE0)) == 0)
       {}
       UDR0 = ~(pgm_read_byte (linePtr + (* messagePtr++)));
@@ -183,7 +183,7 @@ void advanceCursor(int amount) {
   // TODO if amount would go past the end of the VID_RAM
   //      scroll everything instead of wrapping to top of
   //      the screen
-  videoCursor = (videoCursor+amount) % MAX_VID_RAM;
+  videoCursor = (videoCursor + amount) % MAX_VID_RAM;
 }
 
 void writeByte(byte inp) {
@@ -238,27 +238,27 @@ void loop () {
   WAIT_VBE
   // do stuff here during the VBlank
 
-  if(softSerial.available() > 0) {
+  if (softSerial.available() > 0) {
     TIMSK0 &= ~(1 << OCIE0A);  // stop horiz sync interrupt
     int inp = 0;
-    while(softSerial.available() > 0) {
+    while (softSerial.available() > 0) {
       inp = softSerial.read();
 
       // map ASCII input to our weird character set
       //   and deal with (a few) control codes
-      if(inp>=32 && inp < 64) {
+      if (inp >= 32 && inp < 64) {
         // these actually look like the map directly
         writeByte(inp);
-      } else if ( inp >=64 && inp < 96) {
+      } else if ( inp >= 64 && inp < 96) {
         // these map to 0 ... something
-        writeByte(inp-64);
-      } else if( inp >= 96 && inp < 128 ) {
+        writeByte(inp - 64);
+      } else if ( inp >= 96 && inp < 128 ) {
         // lower case isn't in our font so smash it to upper for now :(
-        writeByte(inp-96);
-      } else if( inp == '\n') {
+        writeByte(inp - 96);
+      } else if ( inp == '\n') {
         advanceCursor(CHARS_PER_ROW); // move down a row
         videoCursor -= (videoCursor % CHARS_PER_ROW); // move back to start of row
-      } else if( inp == 0x0C) { // 'new page' or 'form feed'
+      } else if ( inp == 0x0C) { // 'new page' or 'form feed'
         fillVideoMemory();
         videoCursor = 0;
       }
