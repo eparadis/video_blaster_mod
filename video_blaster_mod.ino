@@ -1,3 +1,4 @@
+#include <NeoICSerial.h>
 #include <avr/io.h>
 #include <avr/pgmspace.h>
 #include <avr/interrupt.h>
@@ -14,7 +15,8 @@
 
 volatile byte VBE = 0;   // Video blanking status. If this is not zero you should sleep to keep the video smooth
 
-#define WAIT_VBE while (VBE==1) sleep_cpu();
+//#define WAIT_VBE while (VBE==1) sleep_cpu();
+#define WAIT_VBE while (VBE==1) {}
 
 // These should not be used outside the ISR
 unsigned int scanline = 0;
@@ -157,17 +159,39 @@ ISR(TIMER0_COMPA_vect) {   // Video interrupt. This is called at every line in t
   }
 }
 
-void setup () {
-  pinMode (MSPIM_SS, OUTPUT);
-  pinMode(7, OUTPUT); // video sync output
-  UBRR0 = 0;
-  UCSR0A = _BV (TXC0);
-  pinMode (MSPIM_SCK, OUTPUT);
-  UCSR0C = _BV (UMSEL00) | _BV (UMSEL01);
-  UCSR0B = _BV (TXEN0);
-  UBRR0 = DOTCLK;
+void fillVideoMemory() {
+  for (int i = 0; i < MAX_VID_RAM; i++) {
+    //    videomem[i] = 126; // graphical character of half height square
+    //    videomem[i] = (i&1?0xF0:0x0F); // alternate two specific characters
+    //    videomem[i] = 48 + (i % 10); // count through the digits
+    //    videomem[i] = i%128; // cycle through every character
+    //    videomem[i] = 31; // fill with a single character. 31 is a left horizontal arrow
+    //    videomem[i] = (i%26); // the first 26 characters are A-Z (nonascii)
+    videomem[i] = 32; // fill with blanks, 32 = ' ' in this charset
+  }
+}
 
-  // setup horizontal sync ISR
+NeoICSerial softSerial; // for '328, RX=8, TX=9
+void setupCommunication() {
+  pinMode(8, INPUT);
+  pinMode(9, OUTPUT);
+  softSerial.begin(9600);
+}
+
+int videoCursor = 0;
+void advanceCursor(int amount) {
+  // TODO if amount would go past the end of the VID_RAM
+  //      scroll everything instead of wrapping to top of
+  //      the screen
+  videoCursor = (videoCursor+amount) % MAX_VID_RAM;
+}
+
+void writeByte(byte inp) {
+  videomem[videoCursor] = inp & 0x7F;
+  advanceCursor(1);
+}
+
+void setupHorizSyncISR() {
   cli();
   TCCR0A = 0;
   TCCR0B = 0;
@@ -182,6 +206,17 @@ void setup () {
   TIMSK0 |= (1 << OCIE0A);
   set_sleep_mode (SLEEP_MODE_IDLE);
   sei();
+}
+
+void setup () {
+  pinMode (MSPIM_SS, OUTPUT);
+  pinMode(7, OUTPUT); // video sync output
+  UBRR0 = 0;
+  UCSR0A = _BV (TXC0);
+  pinMode (MSPIM_SCK, OUTPUT);
+  UCSR0C = _BV (UMSEL00) | _BV (UMSEL01);
+  UCSR0B = _BV (TXEN0);
+  UBRR0 = DOTCLK;
 
   // the built-in LED
   pinMode(13, OUTPUT);
@@ -191,20 +226,44 @@ void setup () {
   pinMode(1, OUTPUT);   //A must for MSMSPI VIDEO to work
   digitalWrite(1, LOW); //A must for MSMSPI VIDEO to work
 
-  for (int i = 0; i < MAX_VID_RAM; i++) {
-    //    videomem[i] = 126; // graphical character of half height square
-    //    videomem[i] = (i&1?0xF0:0x0F); // alternate two specific characters
-        videomem[i] = 48 + (i % 10); // count through the digits
-    //    videomem[i] = i%128; // cycle through every character
-    //    videomem[i] = 31; // fill with a single character. 31 is a left horizontal arrow
-    //    videomem[i] = (i%26); // the first 26 characters are A-Z (nonascii)
-    //    videomem[i] = 32; // fill with blanks, 32 = ' ' in this charset
-  }
+  fillVideoMemory();
+
+  setupCommunication();
+
+  setupHorizSyncISR();
 }
 
+unsigned int bytesReceived = 0;
 void loop () {
   WAIT_VBE
-
   // do stuff here during the VBlank
 
+  if(softSerial.available() > 0) {
+    TIMSK0 &= ~(1 << OCIE0A);  // stop horiz sync interrupt
+    int inp = 0;
+    while(softSerial.available() > 0) {
+      inp = softSerial.read();
+
+      // map ASCII input to our weird character set
+      //   and deal with (a few) control codes
+      if(inp>=32 && inp < 64) {
+        // these actually look like the map directly
+        writeByte(inp);
+      } else if ( inp >=64 && inp < 96) {
+        // these map to 0 ... something
+        writeByte(inp-64);
+      } else if( inp >= 96 && inp < 128 ) {
+        // lower case isn't in our font so smash it to upper for now :(
+        writeByte(inp-96);
+      } else if( inp == '\n') {
+        advanceCursor(CHARS_PER_ROW); // move down a row
+        videoCursor -= (videoCursor % CHARS_PER_ROW); // move back to start of row
+      } else if( inp == 0x0C) { // 'new page' or 'form feed'
+        fillVideoMemory();
+        videoCursor = 0;
+      }
+      bytesReceived += 1;
+    }
+    TIMSK0 |= (1 << OCIE0A); // restart horiz sync interrupt
+  }
 }
